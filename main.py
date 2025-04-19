@@ -1,49 +1,43 @@
 from pkg.plugin.context import register, handler, llm_func, BasePlugin, APIHost, EventContext
-from pkg.plugin.events import *  # 导入事件类
+from pkg.plugin.events import PersonNormalMessageReceived, GroupNormalMessageReceived
+import json, os
 
-
-# 注册插件
-@register(name="Hello", description="hello world", version="0.1", author="RockChinQ")
-class MyPlugin(BasePlugin):
-
-    # 插件加载时触发
+@register(
+    name="Akarin",
+    description="赤座灯里角色扮演插件",
+    version="0.1",
+    author="Akarin9"
+)
+class AkarinPlugin(BasePlugin):
     def __init__(self, host: APIHost):
-        pass
+        super().__init__(host)
+        # 加载本地 prompts/akarin.json
+        p = os.path.join(os.path.dirname(__file__), "prompts", "akarin.json")
+        with open(p, "r", encoding="utf-8") as f:
+            self.base_prompt = json.load(f)["prompt"]
 
-    # 异步初始化
     async def initialize(self):
+        # 初始化钩子（可选）
         pass
 
-    # 当收到个人消息时触发
     @handler(PersonNormalMessageReceived)
-    async def person_normal_message_received(self, ctx: EventContext):
-        msg = ctx.event.text_message  # 这里的 event 即为 PersonNormalMessageReceived 的对象
-        if msg == "hello":  # 如果消息为hello
+    async def on_private_message(self, ctx: EventContext):
+        # 私聊直接对话
+        user_msg = ctx.event.text_message
+        messages = self.base_prompt + [{"role": "user", "content": user_msg}]
+        res = await llm_func("chat.completions", messages=messages)
+        reply = res["choices"][0]["message"]["content"]
+        ctx.add_return("reply", [reply])
+        ctx.prevent_default()
 
-            # 输出调试信息
-            self.ap.logger.debug("hello, {}".format(ctx.event.sender_id))
-
-            # 回复消息 "hello, <发送者id>!"
-            ctx.add_return("reply", ["hello, {}!".format(ctx.event.sender_id)])
-
-            # 阻止该事件默认行为（向接口获取回复）
-            ctx.prevent_default()
-
-    # 当收到群消息时触发
     @handler(GroupNormalMessageReceived)
-    async def group_normal_message_received(self, ctx: EventContext):
-        msg = ctx.event.text_message  # 这里的 event 即为 GroupNormalMessageReceived 的对象
-        if msg == "hello":  # 如果消息为hello
-
-            # 输出调试信息
-            self.ap.logger.debug("hello, {}".format(ctx.event.sender_id))
-
-            # 回复消息 "hello, everyone!"
-            ctx.add_return("reply", ["hello, everyone!"])
-
-            # 阻止该事件默认行为（向接口获取回复）
-            ctx.prevent_default()
-
-    # 插件卸载时触发
-    def __del__(self):
-        pass
+    async def on_group_message(self, ctx: EventContext):
+        # 群聊需 @ 机器人才能触发
+        if not ctx.event.is_mentioned:
+            return
+        user_msg = ctx.event.text_message
+        messages = self.base_prompt + [{"role": "user", "content": user_msg}]
+        res = await llm_func("chat.completions", messages=messages)
+        reply = res["choices"][0]["message"]["content"]
+        ctx.add_return("reply", [reply])
+        ctx.prevent_default()
